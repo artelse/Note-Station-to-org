@@ -1,3 +1,5 @@
+# Note: Note Station to org is forked from [Note station to markdown](https://github.com/Maboroshy/Note-Station-to-markdown) and heavily edited for my own needs.
+
 This script will convert notes from Synology Note Station to plain-text markdown notes.  
 The script is written in Python and should work on any desktop platform. It's tested on Linux, Windows 7, mac OS 10.15.
 
