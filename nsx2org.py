@@ -20,14 +20,15 @@ from pathlib import Path
 # You can adjust some setting here. Default is for QOwnNotes app.
 
 ## Select meta data options
-meta_data_in_yaml = False  # True a YAML front matter block will contain the following meta data items.  
-                           # False any selected meta data options below will be in the md text
+meta_data_in_yaml = False  # True a YAML front matter block will contain the following meta data items.
+# False any selected meta data options below will be in the md text
+meta_data_in_org = True # set file_ext below also to org
 insert_title = True  # True will add the title of the note as a field in the YAML block, False no title in block.
-insert_ctime = False  # True to insert note creation time in the YAML block, False to disable.
-insert_mtime = False  # True to insert note modification time in the YAML block, False to disable.
+insert_ctime = True  # True to insert note creation time in the YAML block, False to disable.
+insert_mtime = True  # True to insert note modification time in the YAML block, False to disable.
 tags = True  # True to insert list of tags, False to disable
-tag_prepend = ''  # string to prepend each tag in a tag list inside the note, default is empty
-tag_delimiter = ', '  # string to delimit tags, default is comma separated list
+tag_prepend = ':'  # string to prepend each tag in a tag list inside the note, default is empty
+tag_delimiter = ''  # string to delimit tags, default is comma separated list
 no_spaces_in_tags = False  # True to replace spaces in tag names with '_', False to keep spaces
 
 ## Select file link options
@@ -36,8 +37,8 @@ absolute_links = False  # True for absolute links, False for relative links
 
 ## Select File/Attachments/Media options
 media_dir_name = 'media'  # name of the directory inside the produced directory where all images and attachments will be stored
-md_file_ext = 'md'  # extension for produced markdown syntax note files
-creation_date_in_filename = False  # True to insert note creation time to the note file name, False to disable.
+file_ext = 'org'  # extension for produced markdown syntax note files
+creation_date_in_filename = True  # True to insert note creation time to the note file name, False to disable.
 
 ############################################################################
 
@@ -49,10 +50,10 @@ def sanitise_path_string(path_str):
         path_str = path_str.replace(char, '-')
     for char in ('?', '*'):
         path_str = path_str.replace(char, '')
-    path_str = path_str.replace('<', '(')
-    path_str = path_str.replace('>', ')')
-    path_str = path_str.replace('"', "'")
-    path_str = urllib.parse.unquote(path_str)
+        path_str = path_str.replace('<', '(')
+        path_str = path_str.replace('>', ')')
+        path_str = path_str.replace('"', "'")
+        path_str = urllib.parse.unquote(path_str)
 
     return path_str[:100]
 
@@ -64,36 +65,65 @@ def create_yaml_meta_block():
         yaml_block = '{}Title: "{}"\n'.format(yaml_block, note_title)
 
     if insert_ctime and note_ctime:
-        yaml_text_ctime = time.strftime('%Y-%m-%d %H:%M', time.localtime(note_ctime))
+        yaml_text_ctime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(note_ctime))
         yaml_block = '{}Created: "{}"\n'.format(yaml_block, yaml_text_ctime)
 
     if insert_mtime and note_mtime:
-        yaml_text_mtime = time.strftime('%Y-%m-%d %H:%M', time.localtime(note_mtime))
+        yaml_text_mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(note_mtime))
         yaml_block = '{}Modified: "{}"\n'.format(yaml_block, yaml_text_mtime)
 
     if tags and note_data.get('tag', ''):
         if no_spaces_in_tags:
             note_data['tag'] = [tag.replace(' ', '_') for tag in note_data['tag']]
-        yaml_tag_list = tag_delimiter.join(''.join((tag_prepend, tag)) for tag in note_data['tag'])
-        yaml_block = '{}Tags: [{}]\n'.format(yaml_block, yaml_tag_list)
+            yaml_tag_list = tag_delimiter.join(''.join((tag_prepend, tag)) for tag in note_data['tag'])
+            yaml_block = '{}Tags: [{}]\n'.format(yaml_block, yaml_tag_list)
 
     yaml_block = '{}---\n'.format(yaml_block)
     
     if attachment_list:
         yaml_block = '{}\nAttachments:  {}\n'.format(yaml_block, ', '.join(attachment_list))
-    
+
     return yaml_block
+
+
+def create_org_meta_block():
+    org_block = ''
+
+    if insert_title:
+        org_block = '{}#+title: {}\n'.format(org_block, note_title)
+
+    if insert_ctime and note_ctime:
+        text_ctime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(note_ctime))
+        org_block = '{}#+created: {}\n'.format(org_block, text_ctime)
+
+    if insert_mtime and note_mtime:
+        text_mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(note_mtime))
+        org_block = '{}#+modified: {}\n'.format(org_block, text_mtime)
+
+    if attachment_list:
+        org_block = '{}#+attachments: {}\n'.format(org_block, ', '.join(attachment_list))
+
+    if note_data.get('tag', '') and tags:
+        if no_spaces_in_tags:
+            note_data['tag'] = [tag.replace(' ', '_') for tag in note_data['tag']]
+        else:
+            tag_list = tag_delimiter.join(''.join((tag_prepend, tag)) for tag in note_data['tag'])
+            tag_list += ":" # append closing colon.
+            print('tag_list: "{}"'.format(tag_list))
+            org_block = '{}#+filetags: {}\n'.format(org_block, tag_list)
+
+    return org_block
 
 
 def create_text_meta_block():
     text_block = ''
     
     if insert_mtime and note_mtime:
-        text_mtime = time.strftime('%Y-%m-%d %H:%M', time.localtime(note_mtime))
+        text_mtime = time.strftime('%Y-%m-%d %H:%M%S', time.localtime(note_mtime))
         text_block = 'Modified: {}  \n{}'.format(text_mtime, text_block)
         
     if insert_ctime and note_ctime:
-        text_ctime = time.strftime('%Y-%m-%d %H:%M', time.localtime(note_ctime))
+        text_ctime = time.strftime('%Y-%m-%d %H:%M%S', time.localtime(note_ctime))
         text_block = 'Created: {}  \n{}'.format(text_ctime, text_block)
         
     if attachment_list:
@@ -102,12 +132,12 @@ def create_text_meta_block():
     if note_data.get('tag', '') and tags:
         if no_spaces_in_tags:
             note_data['tag'] = [tag.replace(' ', '_') for tag in note_data['tag']]
-        tag_list = tag_delimiter.join(''.join((tag_prepend, tag)) for tag in note_data['tag'])
-        text_block = 'Tags: {}  \n{}'.format(tag_list, text_block)
-    
+            tag_list = tag_delimiter.join(''.join((tag_prepend, tag)) for tag in note_data['tag'])
+            text_block = 'Tags: {}  \n{}'.format(tag_list, text_block)
+
     if insert_title:
         text_block = '{}\n{}\n{}'.format(note_title, '=' * len(note_title), text_block)
-    
+
     return text_block
 
 
@@ -136,8 +166,7 @@ try:
                        '--wrap=none', '--atx-headers', '-o',
                        pandoc_output_file.name, pandoc_input_file.name]
     else:
-        pandoc_args = ['pandoc', '-f', 'html', '-t', 'markdown_strict+pipe_tables-raw_html',
-                       '--wrap=none', '--markdown-headings=atx', '-o',
+        pandoc_args = ['pandoc', '-f', 'html', '-t', 'org', '--wrap=none', '-o',
                        pandoc_output_file.name, pandoc_input_file.name]
 except Exception:
     pandoc_args = ['pandoc', '-f', 'html', '-t', 'markdown_strict+pipe_tables-raw_html',
@@ -195,7 +224,6 @@ for file in files_to_convert:
         note_title = note_data.get('title', 'Untitled')
         note_ctime = note_data.get('ctime', '')
         note_mtime = note_data.get('mtime', '')
-
         note_id_to_title_index[note_id] = note_title
 
         try:
@@ -248,13 +276,13 @@ for file in files_to_convert:
 
                 try:
                     Path(parent_notebook.media_path / name).write_bytes(nsx_file.read('file_' + md5))
-                    attachment_link = '[{}]({})'.format(name, link_path)
+                    attachment_link = '[{}][{}]'.format(link_path, name)
                 except Exception:
                     if source:
-                        attachment_link = '[{}]({})'.format(name, source)
+                        attachment_link = '[{}][{}]'.format(source, name)
                     else:
                         print('Can\'t find attachment "{}" of note "{}"'.format(name, note_title))
-                        attachment_link = '[NOT FOUND]({})'.format(link_path)
+                        attachment_link = '[{}][NOT FOUND]'.format(link_path)
 
 
                 if ref and source:
@@ -266,27 +294,29 @@ for file in files_to_convert:
 
 
         if note_data.get('tag', '') or attachment_list or insert_title \
-                or insert_ctime or insert_mtime:
+           or insert_ctime or insert_mtime:
             content = '\n' + content
 
 
         if meta_data_in_yaml:
             content = '{}\n{}'.format(create_yaml_meta_block(), content)
+        elif meta_data_in_org:
+            content = '{}\n{}'.format(create_org_meta_block(), content)
         else:
             content = '{}\n{}'.format(create_text_meta_block(), content)
 
 
         if creation_date_in_filename and note_ctime:
-            note_title = time.strftime('%Y-%m-%d ', time.localtime(note_ctime)) + note_title
+            note_title = time.strftime('%Y%m%dT%H%M%S-', time.localtime(note_ctime)) + note_title
 
 
         md_file_name = sanitise_path_string(note_title) or 'Untitled'
-        md_file_path = Path(parent_notebook.path / '{}.{}'.format(md_file_name, md_file_ext))
+        md_file_path = Path(parent_notebook.path / '{}.{}'.format(md_file_name, file_ext))
 
         n = 1
         while md_file_path.is_file():
             md_file_path = Path(parent_notebook.path / ('{}_{}.{}'.format(
-                                            sanitise_path_string(note_title), n, md_file_ext)))
+                sanitise_path_string(note_title), n, file_ext)))
             n += 1
 
         md_file_path.write_text(content, 'utf-8')
