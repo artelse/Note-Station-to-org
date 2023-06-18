@@ -11,7 +11,7 @@ import tempfile
 import subprocess
 import collections
 import urllib.request
-import distutils.version
+import packaging.version
 from urllib.parse import unquote
 
 from pathlib import Path
@@ -155,13 +155,13 @@ try:
     pandoc_ver = subprocess.check_output(['pandoc', '-v'], timeout=3).decode('utf-8')[7:].split('\n', 1)[0].strip()
     print('Found pandoc ' + pandoc_ver)
 
-    if distutils.version.LooseVersion(pandoc_ver) < distutils.version.LooseVersion('1.16'):
+    if packaging.version.LooseVersion(pandoc_ver) < packaging.version.LooseVersion('1.16'):
         pandoc_args = ['pandoc', '-f', 'html', '-t', 'markdown_strict+pipe_tables-raw_html',
                        '--no-wrap', '-o', pandoc_output_file.name, pandoc_input_file.name]
-    elif distutils.version.LooseVersion(pandoc_ver) < distutils.version.LooseVersion('1.19'):
+    elif packaging.version.LooseVersion(pandoc_ver) < packaging.version.LooseVersion('1.19'):
         pandoc_args = ['pandoc', '-f', 'html', '-t', 'markdown_strict+pipe_tables-raw_html',
                        '--wrap=none', '-o', pandoc_output_file.name, pandoc_input_file.name]
-    elif distutils.version.LooseVersion(pandoc_ver) < distutils.version.LooseVersion('2.11.2'):
+    elif packaging.version.LooseVersion(pandoc_ver) < packaging.version.LooseVersion('2.11.2'):
         pandoc_args = ['pandoc', '-f', 'html', '-t', 'markdown_strict+pipe_tables-raw_html',
                        '--wrap=none', '--atx-headers', '-o',
                        pandoc_output_file.name, pandoc_input_file.name]
