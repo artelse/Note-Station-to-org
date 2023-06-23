@@ -11,21 +11,22 @@ import tempfile
 import subprocess
 import collections
 import urllib.request
-import packaging.version
-from urllib.parse import unquote
-
 from pathlib import Path
+from packaging import version
+from urllib.parse import unquote
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
 
-
-# You can adjust some setting here. Default is for QOwnNotes app.
+# TODO
 
 ## Select meta data options
-meta_data_in_yaml = False  # True a YAML front matter block will contain the following meta data items.
-# False any selected meta data options below will be in the md text
-meta_data_in_org = True # set file_ext below also to org
-insert_title = True  # True will add the title of the note as a field in the YAML block, False no title in block.
-insert_ctime = True  # True to insert note creation time in the YAML block, False to disable.
-insert_mtime = True  # True to insert note modification time in the YAML block, False to disable.
+meta_data_in_org = True # Meta-data in org header format. Set file_ext below also to org.
+insert_title = True  # True will add the title of the note as a field in the meta_block, False no title in block.
+insert_ctime = True  # True to insert note creation time in the meta_block, False to disable.
+insert_mtime = True  # True to insert note modification time in the meta_block, False to disable.
+insert_source_url = True # True to insert source_url link to meta_block.
+insert_location = True # True to insert location and latitude and longitude in meta_block.
+insert_notebook = True # True to insert the parent notebook as a separate meta_block entry.
 tags = True  # True to insert list of tags, False to disable
 tag_prepend = ':'  # string to prepend each tag in a tag list inside the note, default is empty
 tag_delimiter = ''  # string to delimit tags, default is comma separated list
@@ -39,6 +40,8 @@ absolute_links = False  # True for absolute links, False for relative links
 media_dir_name = 'media'  # name of the directory inside the produced directory where all images and attachments will be stored
 file_ext = 'org'  # extension for produced markdown syntax note files
 creation_date_in_filename = True  # True to insert note creation time to the note file name, False to disable.
+org_embed_images = True # Embed images in file
+
 
 ############################################################################
 
@@ -57,34 +60,29 @@ def sanitise_path_string(path_str):
 
     return path_str[:100]
 
+def get_location(latitude, longitude):
 
-def create_yaml_meta_block():
-    yaml_block = '---\n'
+    geolocator = Nominatim(user_agent = 'nsx2org')
+    reverse = RateLimiter(geolocator.reverse, min_delay_seconds=1)
 
-    if insert_title:
-        yaml_block = '{}Title: "{}"\n'.format(yaml_block, note_title)
+    # Combine latitude and longitude into a single string
+    location = f"{latitude}, {longitude}"
 
-    if insert_ctime and note_ctime:
-        yaml_text_ctime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(note_ctime))
-        yaml_block = '{}Created: "{}"\n'.format(yaml_block, yaml_text_ctime)
+    try:
+        # Use reverse geocoding to get the location information
+        # location_data = geolocator.reverse(location, exactly_one=True, language="en")
+        location_data = reverse(location, exactly_one=True, language="en")
 
-    if insert_mtime and note_mtime:
-        yaml_text_mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(note_mtime))
-        yaml_block = '{}Modified: "{}"\n'.format(yaml_block, yaml_text_mtime)
+        # Extract city and country from the location data
+        address = location_data.raw['address']
+        city = address.get('city', '')
+        country = address.get('country', '')
 
-    if tags and note_data.get('tag', ''):
-        if no_spaces_in_tags:
-            note_data['tag'] = [tag.replace(' ', '_') for tag in note_data['tag']]
-            yaml_tag_list = tag_delimiter.join(''.join((tag_prepend, tag)) for tag in note_data['tag'])
-            yaml_block = '{}Tags: [{}]\n'.format(yaml_block, yaml_tag_list)
+        return city, country
 
-    yaml_block = '{}---\n'.format(yaml_block)
-    
-    if attachment_list:
-        yaml_block = '{}\nAttachments:  {}\n'.format(yaml_block, ', '.join(attachment_list))
-
-    return yaml_block
-
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return None, None
 
 def create_org_meta_block():
     org_block = ''
@@ -100,45 +98,34 @@ def create_org_meta_block():
         text_mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(note_mtime))
         org_block = '{}#+modified: {}\n'.format(org_block, text_mtime)
 
+    if insert_notebook:
+        org_block = '{}#+notebook: {}\n'.format(org_block, notebook_title)
+
+    if tags:
+        tag_list = ":note station:" # Add source is note station.
+        if note_data.get('tag', '') and no_spaces_in_tags:
+            note_data['tag'] = [tag.replace(' ', '_') for tag in note_data['tag']]
+        elif note_data.get('tag', ''):
+            tag_list = tag_delimiter.join(''.join((tag_prepend, tag)) for tag in note_data['tag']) + tag_list
+
+        org_block = '{}#+filetags: {}\n'.format(org_block, tag_list)
+
+    if insert_source_url and note_source_url:
+        org_block = '{}#+link: {}\n'.format(org_block, note_source_url)
+
+    if insert_location and (note_location or note_latitude):
+        if note_location:
+            org_block = '{}#+location: {}\n'.format(org_block, note_location)
+        elif note_latitude:
+            city, country = get_location(note_latitude, note_longitude)
+            org_block = '{}#+location: {} {}\n'.format(org_block, city, country)
+            org_block = '{}#+latlon: {} {}\n'.format(org_block, note_latitude, note_longitude)
+
     if attachment_list:
         org_block = '{}#+attachments: {}\n'.format(org_block, ', '.join(attachment_list))
 
-    if note_data.get('tag', '') and tags:
-        if no_spaces_in_tags:
-            note_data['tag'] = [tag.replace(' ', '_') for tag in note_data['tag']]
-        else:
-            tag_list = tag_delimiter.join(''.join((tag_prepend, tag)) for tag in note_data['tag'])
-            tag_list += ":" # append closing colon.
-            print('tag_list: "{}"'.format(tag_list))
-            org_block = '{}#+filetags: {}\n'.format(org_block, tag_list)
 
     return org_block
-
-
-def create_text_meta_block():
-    text_block = ''
-    
-    if insert_mtime and note_mtime:
-        text_mtime = time.strftime('%Y-%m-%d %H:%M%S', time.localtime(note_mtime))
-        text_block = 'Modified: {}  \n{}'.format(text_mtime, text_block)
-        
-    if insert_ctime and note_ctime:
-        text_ctime = time.strftime('%Y-%m-%d %H:%M%S', time.localtime(note_ctime))
-        text_block = 'Created: {}  \n{}'.format(text_ctime, text_block)
-        
-    if attachment_list:
-        text_block = 'Attachments: {}  \n{}'.format(', '.join(attachment_list), text_block)
-        
-    if note_data.get('tag', '') and tags:
-        if no_spaces_in_tags:
-            note_data['tag'] = [tag.replace(' ', '_') for tag in note_data['tag']]
-            tag_list = tag_delimiter.join(''.join((tag_prepend, tag)) for tag in note_data['tag'])
-            text_block = 'Tags: {}  \n{}'.format(tag_list, text_block)
-
-    if insert_title:
-        text_block = '{}\n{}\n{}'.format(note_title, '=' * len(note_title), text_block)
-
-    return text_block
 
 
 work_path = Path.cwd()
@@ -155,22 +142,15 @@ try:
     pandoc_ver = subprocess.check_output(['pandoc', '-v'], timeout=3).decode('utf-8')[7:].split('\n', 1)[0].strip()
     print('Found pandoc ' + pandoc_ver)
 
-    if packaging.version.LooseVersion(pandoc_ver) < packaging.version.LooseVersion('1.16'):
-        pandoc_args = ['pandoc', '-f', 'html', '-t', 'markdown_strict+pipe_tables-raw_html',
-                       '--no-wrap', '-o', pandoc_output_file.name, pandoc_input_file.name]
-    elif packaging.version.LooseVersion(pandoc_ver) < packaging.version.LooseVersion('1.19'):
-        pandoc_args = ['pandoc', '-f', 'html', '-t', 'markdown_strict+pipe_tables-raw_html',
-                       '--wrap=none', '-o', pandoc_output_file.name, pandoc_input_file.name]
-    elif packaging.version.LooseVersion(pandoc_ver) < packaging.version.LooseVersion('2.11.2'):
-        pandoc_args = ['pandoc', '-f', 'html', '-t', 'markdown_strict+pipe_tables-raw_html',
-                       '--wrap=none', '--atx-headers', '-o',
+    if version.parse(pandoc_ver) < version.parse('1.16'):
+        pandoc_args = ['pandoc', '-f', 'html', '-t', 'org', '--no-wrap', '-o',
                        pandoc_output_file.name, pandoc_input_file.name]
     else:
-        pandoc_args = ['pandoc', '-f', 'html', '-t', 'org', '--wrap=none', '-o',
-                       pandoc_output_file.name, pandoc_input_file.name]
+        pandoc_args = ['pandoc', '-f', 'html', '-t', 'org', '--wrap=none', '--lua-filter=remove-header-attr.lua',
+                       '-o', pandoc_output_file.name, pandoc_input_file.name]
+
 except Exception:
-    pandoc_args = ['pandoc', '-f', 'html', '-t', 'markdown_strict+pipe_tables-raw_html',
-                   '--wrap=none', '--markdown-headings=atx', '-o',
+    pandoc_args = ['pandoc', '-f', 'html', '-t', 'org', '--wrap=none', '-o',
                    pandoc_output_file.name, pandoc_input_file.name]
 
 if len(sys.argv) > 1:
@@ -224,6 +204,10 @@ for file in files_to_convert:
         note_title = note_data.get('title', 'Untitled')
         note_ctime = note_data.get('ctime', '')
         note_mtime = note_data.get('mtime', '')
+        note_source_url = note_data.get('source_url', '')
+        note_location = note_data.get('location', '')
+        note_latitude = note_data.get('latitude', '')
+        note_longitude = note_data.get('longitude', '')
         note_id_to_title_index[note_id] = note_title
 
         try:
@@ -233,10 +217,8 @@ for file in files_to_convert:
             continue
 
         print('Converting note "{}"'.format(note_title))
-
         content = re.sub('<img class=[^>]*syno-notestation-image-object[^>]*src=[^>]*ref=',
                          '<img src=', note_data.get('content', ''))
-
 
         Path(pandoc_input_file.name).write_text(content, 'utf-8')
         pandoc = subprocess.Popen(pandoc_args)
@@ -292,34 +274,36 @@ for file in files_to_convert:
                 else:
                     attachment_list.append(attachment_link)
 
+        # cleanup double \\ from output
+        content = re.sub('\\\\', '', content)
+
+        if org_embed_images:
+            content = re.sub('file://','', content) # fix file: in links
+
 
         if note_data.get('tag', '') or attachment_list or insert_title \
            or insert_ctime or insert_mtime:
             content = '\n' + content
 
 
-        if meta_data_in_yaml:
-            content = '{}\n{}'.format(create_yaml_meta_block(), content)
-        elif meta_data_in_org:
+        if meta_data_in_org:
             content = '{}\n{}'.format(create_org_meta_block(), content)
-        else:
-            content = '{}\n{}'.format(create_text_meta_block(), content)
 
 
         if creation_date_in_filename and note_ctime:
             note_title = time.strftime('%Y%m%dT%H%M%S-', time.localtime(note_ctime)) + note_title
 
 
-        md_file_name = sanitise_path_string(note_title) or 'Untitled'
-        md_file_path = Path(parent_notebook.path / '{}.{}'.format(md_file_name, file_ext))
+        file_name = sanitise_path_string(note_title) or 'Untitled'
+        file_path = Path(parent_notebook.path / '{}.{}'.format(file_name, file_ext))
 
         n = 1
-        while md_file_path.is_file():
-            md_file_path = Path(parent_notebook.path / ('{}_{}.{}'.format(
+        while file_path.is_file():
+            file_path = Path(parent_notebook.path / ('{}_{}.{}'.format(
                 sanitise_path_string(note_title), n, file_ext)))
             n += 1
 
-        md_file_path.write_text(content, 'utf-8')
+        file_path.write_text(content, 'utf-8')
 
         converted_note_ids.append(note_id)
 
@@ -361,4 +345,4 @@ pandoc_output_file.close()
 os.unlink(pandoc_input_file.name)
 os.unlink(pandoc_output_file.name)
 
-input('Press Enter to quit...')
+#input('Press Enter to quit...')
